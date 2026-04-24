@@ -17,6 +17,19 @@ RETRYABLE_STATUS_CODES = {408, 409, 429, 500, 502, 503, 504}
 class OpenAISupportAssistant:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
+        
+        # Настройка proxy для OpenAI API
+        # httpx использует формат: {"http://": "proxy_url", "https://": "proxy_url"}
+        # или просто строку для всех протоколов
+        proxy = None
+        if settings.https_proxy:
+            proxy = settings.https_proxy
+        elif settings.http_proxy:
+            proxy = settings.http_proxy
+        
+        if proxy:
+            logger.info("OpenAI client configured with proxy")
+        
         self._client = httpx.AsyncClient(
             base_url=settings.openai_base_url,
             timeout=httpx.Timeout(45.0, connect=12.0),
@@ -24,6 +37,7 @@ class OpenAISupportAssistant:
                 "Authorization": f"Bearer {settings.openai_api_key}",
                 "Content-Type": "application/json",
             },
+            proxy=proxy,  # httpx использует proxy, а не proxies
         )
 
     async def generate_turn(
@@ -151,49 +165,61 @@ class OpenAISupportAssistant:
                 ready_to_submit=current_ticket.is_complete(),
             )
 
+        # Извлечение имени
         if not current_ticket.name and self._looks_like_name(message):
             extracted.name = message
 
+        # Извлечение контакта
         if not current_ticket.contact:
             contact = self._extract_contact(message)
             if contact:
                 extracted.contact = contact
 
+        # Извлечение номера заказа
+        if not current_ticket.order_number:
+            order_num = self._extract_order_number(message)
+            if order_num:
+                extracted.order_number = order_num
+
+        # Извлечение состояния товара
+        if not current_ticket.item_condition:
+            condition = self._extract_item_condition(message_lower)
+            if condition:
+                extracted.item_condition = condition
+
+        # Извлечение способа возврата
+        if not current_ticket.refund_method:
+            method = self._extract_refund_method(message_lower)
+            if method:
+                extracted.refund_method = method
+
+        # Обработка по запрошенному полю
         if requested_field == "name" and not extracted.name and self._looks_like_name(message):
             extracted.name = message
         elif requested_field == "contact" and not extracted.contact:
             extracted.contact = self._extract_contact(message)
-        elif requested_field == "occurred_at" and self._looks_like_time_answer(message_lower):
-            extracted.occurred_at = message
-        elif requested_field == "priority":
-            extracted.priority = self._extract_priority(message_lower)
-        elif requested_field == "location":
-            extracted.location = self._extract_location(message, current_ticket)
-        elif requested_field == "problem":
-            extracted.problem_summary = self._extract_problem_summary(message, current_ticket)
+        elif requested_field == "order_number" and not extracted.order_number:
+            extracted.order_number = self._extract_order_number(message)
+        elif requested_field == "product_name" and not current_ticket.product_name:
+            extracted.product_name = message
+        elif requested_field == "return_reason" and not current_ticket.return_reason:
+            extracted.return_reason = message
+        elif requested_field == "purchase_date" and not current_ticket.purchase_date:
+            extracted.purchase_date = message
+        elif requested_field == "item_condition" and not extracted.item_condition:
+            extracted.item_condition = self._extract_item_condition(message_lower)
+        elif requested_field == "refund_method" and not extracted.refund_method:
+            extracted.refund_method = self._extract_refund_method(message_lower)
 
-        if not extracted.problem_summary and not current_ticket.problem_summary and not self._looks_like_name(message):
-            extracted.problem_summary = self._extract_problem_summary(message, current_ticket)
+        # Если не извлекли название товара и его нет, пробуем взять из сообщения
+        if not extracted.product_name and not current_ticket.product_name and len(message) >= 2:
+            if not self._looks_like_name(message) and not self._extract_contact(message):
+                extracted.product_name = message
 
-        if (
-            not extracted.problem_summary
-            and current_ticket.problem_summary
-            and len(message.split()) <= 4
-            and not self._looks_like_name(message)
-            and not self._looks_like_time_answer(message_lower)
-            and not self._extract_priority(message_lower)
-            and not self._extract_contact(message)
-        ):
-            extracted.problem_summary = self._extract_problem_summary(message, current_ticket)
-
-        if not extracted.occurred_at and not current_ticket.occurred_at and self._looks_like_time_answer(message_lower):
-            extracted.occurred_at = message
-
-        if not extracted.location and not current_ticket.location:
-            extracted.location = self._extract_location(message, current_ticket)
-
-        if not extracted.priority and not current_ticket.priority:
-            extracted.priority = self._extract_priority(message_lower)
+        # Если не извлекли причину возврата и её нет, пробуем взять из сообщения
+        if not extracted.return_reason and not current_ticket.return_reason and len(message) >= 3:
+            if not self._looks_like_name(message) and not self._extract_contact(message):
+                extracted.return_reason = message
 
         merged_ticket = current_ticket.model_copy(deep=True)
         merged_ticket.merge(extracted)
@@ -221,29 +247,25 @@ class OpenAISupportAssistant:
         telegram_first_name: str | None,
     ) -> str:
         if not conversation_history and is_new_session and not extracted.name and not merged_ticket.name:
-            return "Здравствуйте! Я помогу вам с обращением в техподдержку. Как вас зовут?"
+            return "Здравствуйте! Я помогу вам оформить возврат товара. Как вас зовут?"
 
         if not merged_ticket.name:
             return "Подскажите, как к вам обращаться?"
 
         if not merged_ticket.contact:
-            return "Оставьте, пожалуйста, контакт для связи: телефон или Telegram."
+            return "Оставьте, пожалуйста, контакт для связи: телефон, email или Telegram."
 
-        if not merged_ticket.problem_summary:
-            name = merged_ticket.name or telegram_first_name
-            prefix = f"{name}, " if name else ""
-            return f"{prefix}кратко опишите, пожалуйста, что случилось."
+        if not merged_ticket.order_number:
+            return "Укажите, пожалуйста, номер заказа."
 
-        if not merged_ticket.occurred_at:
-            return "Подскажите, пожалуйста, когда началась эта проблема?"
+        if not merged_ticket.product_name:
+            return "Какой товар вы хотите вернуть?"
 
-        if not merged_ticket.location:
-            if self._is_device_issue(merged_ticket.problem_summary):
-                return "Правильно понимаю, проблема возникает с самим устройством? Если да, напишите, с каким именно."
-            return "Где именно проявляется проблема: на сайте, в приложении, в функции или на устройстве?"
+        if not merged_ticket.return_reason:
+            return "Укажите, пожалуйста, причину возврата."
 
-        if not merged_ticket.priority:
-            return "Насколько это срочно: срочно, средне или низкий приоритет?"
+        if not merged_ticket.item_condition:
+            return "В каком состоянии товар: не использовался, вскрыт, использовался или повреждён?"
 
         return "Спасибо! Проверяю, всё ли собрано по заявке."
 
@@ -269,49 +291,35 @@ class OpenAISupportAssistant:
             return None
 
         message = last_assistant_message.lower()
-        if any(phrase in message for phrase in ["как вас зовут", "как к вам обращаться", "полное имя"]):
+        if any(phrase in message for phrase in ["как вас зовут", "как к вам обращаться"]):
             return "name"
-        if any(phrase in message for phrase in ["контакт", "телефон для связи", "telegram"]):
+        if any(phrase in message for phrase in ["контакт", "телефон", "email", "telegram"]):
             return "contact"
-        if any(phrase in message for phrase in ["когда началась", "когда возникла", "когда это началось"]):
-            return "occurred_at"
-        if any(phrase in message for phrase in ["насколько это срочно", "какой приоритет", "срочно"]):
-            return "priority"
-        if any(phrase in message for phrase in ["где именно", "где проявляется", "в приложении", "на сайте", "на устройстве"]):
-            return "location"
-        if any(
-            phrase in message
-            for phrase in [
-                "что случилось",
-                "в чем проблема",
-                "в чём проблема",
-                "в чем именно проблема",
-                "в чём именно проблема",
-                "опишите проблему",
-                "что именно",
-            ]
-        ):
-            return "problem"
+        if any(phrase in message for phrase in ["номер заказа"]):
+            return "order_number"
+        if any(phrase in message for phrase in ["какой товар", "название товара"]):
+            return "product_name"
+        if any(phrase in message for phrase in ["причину возврата", "почему возвращаете"]):
+            return "return_reason"
+        if any(phrase in message for phrase in ["дата покупки", "когда купили"]):
+            return "purchase_date"
+        if any(phrase in message for phrase in ["состоянии товар", "использовался", "вскрыт", "повреждён"]):
+            return "item_condition"
+        if any(phrase in message for phrase in ["способ возврата", "вернуть деньги", "на карту"]):
+            return "refund_method"
         return None
 
     @staticmethod
     def _looks_like_name(message: str) -> bool:
         lowered = message.lower()
         blockers = [
-            "проблем",
-            "ошибк",
-            "не ",
-            "невключ",
-            "не включ",
-            "телефон",
-            "ноутбук",
-            "прилож",
-            "сайт",
-            "экран",
-            "кнопк",
-            "срочно",
-            "вчера",
-            "сегодня",
+            "заказ",
+            "товар",
+            "возврат",
+            "не подошл",
+            "брак",
+            "дефект",
+            "повреж",
         ]
         if any(blocker in lowered for blocker in blockers):
             return False
@@ -325,6 +333,13 @@ class OpenAISupportAssistant:
         if message.startswith("@") and len(message) > 1:
             return message
 
+        # Проверка email
+        if "@" in message and "." in message:
+            email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+            if re.match(email_pattern, message.strip()):
+                return message.strip()
+
+        # Проверка телефона
         compact = re.sub(r"[^\d+]", "", message)
         digits = re.sub(r"\D", "", compact)
         if len(digits) >= 10:
@@ -332,91 +347,34 @@ class OpenAISupportAssistant:
         return None
 
     @staticmethod
-    def _looks_like_time_answer(message_lower: str) -> bool:
-        tokens = [
-            "минут",
-            "час",
-            "день",
-            "недел",
-            "месяц",
-            "сегодня",
-            "вчера",
-            "только что",
-            "утром",
-            "вечером",
-            "назад",
-        ]
-        return any(token in message_lower for token in tokens)
-
-    @staticmethod
-    def _extract_priority(message_lower: str) -> str | None:
-        if any(token in message_lower for token in ["срочно", "критично", "очень срочно", "горит", "важно срочно"]):
-            return "срочно"
-        if "низк" in message_lower:
-            return "низкий приоритет"
-        if any(token in message_lower for token in ["средне", "не срочно", "обычно", "терпит"]):
-            return "средне"
+    def _extract_order_number(message: str) -> str | None:
+        cleaned = message.strip()
+        if re.match(r'^[A-Za-zА-Яа-я0-9-]{3,30}$', cleaned):
+            return cleaned
         return None
 
-    def _extract_location(self, message: str, current_ticket: SupportTicket) -> str | None:
-        message_lower = message.lower()
-        if "телефон" in message_lower:
-            return "телефон"
-        if "ноутбук" in message_lower:
-            return "ноутбук"
-        if "компьютер" in message_lower or "пк" in message_lower:
-            return "компьютер"
-        if "принтер" in message_lower:
-            return "принтер"
-        if "сайт" in message_lower:
-            return "сайт"
-        if "прилож" in message_lower:
-            return "приложение"
-        if "личн" in message_lower and "кабинет" in message_lower:
-            return "личный кабинет"
-        if self._is_device_issue(message) or self._is_device_issue(current_ticket.problem_summary):
-            return "устройство"
+    @staticmethod
+    def _extract_item_condition(message_lower: str) -> str | None:
+        if "не использовал" in message_lower or "не открывал" in message_lower:
+            return "не использовался"
+        if "вскрыт" in message_lower or "открыт" in message_lower or "распаков" in message_lower:
+            return "вскрыт"
+        if "использовал" in message_lower or "пользовал" in message_lower:
+            return "использовался"
+        if "повреж" in message_lower or "сломан" in message_lower or "брак" in message_lower or "дефект" in message_lower:
+            return "повреждён"
         return None
 
-    def _extract_problem_summary(self, message: str, current_ticket: SupportTicket) -> str | None:
-        cleaned = self._normalize_text(message)
-        if not cleaned:
-            return None
-
-        existing = current_ticket.problem_summary
-        message_lower = cleaned.lower()
-
-        if existing:
-            existing_lower = existing.lower()
-            if cleaned.lower() == existing_lower:
-                return None
-            if "не включ" in existing_lower and cleaned.lower() in {"телефон", "ноутбук", "компьютер"}:
-                return f"{cleaned.capitalize()} не включается"
-            if cleaned.lower() in existing_lower:
-                return None
-            if len(cleaned.split()) <= 4:
-                return f"{existing.rstrip('.')} {cleaned}".strip()
-
-        if self._looks_like_name(cleaned):
-            return None
-
-        return cleaned
-
     @staticmethod
-    def _is_device_issue(value: str | None) -> bool:
-        if not value:
-            return False
-        lowered = value.lower()
-        return any(
-            token in lowered
-            for token in [
-                "телефон",
-                "ноутбук",
-                "компьютер",
-                "принтер",
-                "устройство",
-                "не включ",
-                "кнопк",
-                "экран",
-            ]
-        )
+    def _extract_refund_method(message_lower: str) -> str | None:
+        if "на карту" in message_lower or "карт" in message_lower:
+            return "на карту"
+        if "исходн" in message_lower or "как оплачивал" in message_lower or "как платил" in message_lower:
+            return "на исходный способ оплаты"
+        if "обмен" in message_lower or "замен" in message_lower:
+            return "обмен"
+        if "уточн" in message_lower or "не знаю" in message_lower or "потом" in message_lower:
+            return "уточнит оператор"
+        return None
+
+

@@ -1,21 +1,25 @@
+import re
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
 
-Priority = Literal["срочно", "средне", "низкий приоритет"]
+ItemCondition = Literal["не использовался", "вскрыт", "использовался", "повреждён"]
+RefundMethod = Literal["на карту", "на исходный способ оплаты", "обмен", "уточнит оператор"]
 MessageRole = Literal["user", "assistant"]
 
 
 class SupportTicket(BaseModel):
     name: str | None = None
     contact: str | None = None
-    problem_summary: str | None = None
-    occurred_at: str | None = None
-    location: str | None = None
-    priority: Priority | None = None
+    order_number: str | None = None
+    product_name: str | None = None
+    return_reason: str | None = None
+    purchase_date: str | None = None
+    item_condition: ItemCondition | None = None
+    refund_method: RefundMethod | None = None
 
-    @field_validator("name", "contact", "problem_summary", "occurred_at", "location")
+    @field_validator("name", "contact", "product_name", "return_reason", "purchase_date")
     @classmethod
     def clean_text(cls, value: str | None) -> str | None:
         if value is None:
@@ -23,9 +27,68 @@ class SupportTicket(BaseModel):
         cleaned = " ".join(value.split()).strip()
         return cleaned or None
 
-    def merge(self, other: "SupportTicket") -> None:
+    @field_validator("order_number")
+    @classmethod
+    def validate_order_number(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not cleaned:
+            return None
+        if not re.match(r'^[A-Za-zА-Яа-я0-9-]{3,30}$', cleaned):
+            return None
+        return cleaned
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = " ".join(value.split()).strip()
+        if len(cleaned) < 2:
+            return None
+        if cleaned.isdigit():
+            return None
+        return cleaned
+
+    @field_validator("product_name")
+    @classmethod
+    def validate_product_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = " ".join(value.split()).strip()
+        if len(cleaned) < 2:
+            return None
+        return cleaned
+
+    @field_validator("return_reason")
+    @classmethod
+    def validate_return_reason(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = " ".join(value.split()).strip()
+        if len(cleaned) < 3:
+            return None
+        return cleaned
+
+    def merge(self, other: "SupportTicket", protect_required: bool = False) -> None:
+        """
+        Объединяет данные из другого тикета.
+        
+        Args:
+            other: Тикет с новыми данными
+            protect_required: Если True, не перезаписывает уже заполненные обязательные поля
+        """
+        required_fields = {"name", "contact", "order_number", "product_name", "return_reason", "item_condition"}
+        
         for field_name, value in other.model_dump().items():
             if value not in (None, ""):
+                # Если защита включена и поле обязательное и уже заполнено - не перезаписываем
+                if protect_required and field_name in required_fields:
+                    current_value = getattr(self, field_name)
+                    if current_value not in (None, ""):
+                        continue  # Пропускаем перезапись
+                
                 setattr(self, field_name, value)
 
     def is_complete(self) -> bool:
@@ -33,10 +96,10 @@ class SupportTicket(BaseModel):
             [
                 self.name,
                 self.contact,
-                self.problem_summary,
-                self.occurred_at,
-                self.location,
-                self.priority,
+                self.order_number,
+                self.product_name,
+                self.return_reason,
+                self.item_condition,
             ]
         )
 
@@ -69,6 +132,15 @@ class SupportSession(BaseModel):
     submitted: bool = False
     ticket: SupportTicket = Field(default_factory=SupportTicket)
     history: list[DialogueMessage] = Field(default_factory=list)
+    
+    # Флаги для мягкого дозапроса необязательных полей
+    purchase_date_asked: bool = False
+    refund_method_asked: bool = False
+    
+    # Rate limiting
+    message_count: int = 0
+    rate_limit_notified: bool = False  # Флаг: уведомление о лимите уже отправлено
+    rate_limit_reset_time: float = 0.0  # Время сброса лимита (unix timestamp)
 
     def add_user_message(self, text: str) -> None:
         self._append_history("user", text)
@@ -91,6 +163,9 @@ class SupportSession(BaseModel):
         self.submitted = False
         self.ticket = SupportTicket()
         self.history = []
+        self.purchase_date_asked = False
+        self.refund_method_asked = False
+        # Rate limiting НЕ сбрасывается при reset диалога
 
     def _append_history(self, role: MessageRole, text: str) -> None:
         self.history.append(DialogueMessage(role=role, text=text))

@@ -11,10 +11,10 @@ from services.storage import InMemorySessionRepository
 logger = logging.getLogger(__name__)
 router = Router()
 
-START_MESSAGE = "Здравствуйте! Я помогу вам с обращением в техподдержку. Как вас зовут?"
-RESET_MESSAGE = "Диалог сброшен. Начнем заново. Как вас зовут?"
+START_MESSAGE = "Здравствуйте! Я помогу вам оформить возврат товара. Как вас зовут?"
+RESET_MESSAGE = "Диалог сброшен. Начнем заново оформление возврата. Как вас зовут?"
 GENERIC_ERROR_MESSAGE = "Сейчас не удалось обработать обращение. Попробуйте еще раз через пару минут."
-UNSUPPORTED_MESSAGE = "Пожалуйста, опишите проблему текстом, и я помогу оформить заявку."
+UNSUPPORTED_MESSAGE = "Пожалуйста, опишите запрос текстом, и я помогу оформить возврат."
 
 
 @router.message(Command("start"))
@@ -68,6 +68,23 @@ async def handle_reset(
     await message.answer(RESET_MESSAGE)
 
 
+@router.message(Command("chatid"))
+async def handle_chatid(message: Message) -> None:
+    """Показывает ID текущего чата - используйте для настройки OPERATOR_CHAT_ID"""
+    chat_id = message.chat.id
+    chat_type = message.chat.type
+    chat_title = getattr(message.chat, 'title', 'N/A')
+    
+    response = (
+        f"📋 Информация о чате:\n\n"
+        f"Chat ID: {chat_id}\n"
+        f"Тип: {chat_type}\n"
+        f"Название: {chat_title}\n\n"
+        f"Используйте этот Chat ID в переменной OPERATOR_CHAT_ID в файле .env"
+    )
+    await message.answer(response)
+
+
 @router.message(F.text)
 async def handle_text_message(
     message: Message,
@@ -88,7 +105,9 @@ async def handle_text_message(
 
     try:
         reply = await workflow.process_message(session, message.text)
-        await message.answer(reply)
+        # Если reply пустой, значит сообщение игнорируется (rate limit)
+        if reply:
+            await message.answer(reply)
     except Exception:
         logger.exception("Failed to process incoming support message")
         await message.answer(GENERIC_ERROR_MESSAGE)

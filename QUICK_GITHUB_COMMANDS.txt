@@ -1,0 +1,37 @@
+=== БЫСТРАЯ ИНСТРУКЦИЯ: Перенос на GitHub ===
+
+1. СОЗДАЙТЕ РЕПОЗИТОРИЙ на https://github.com/eth1r
+   - Нажмите "New"
+   - Название: telegram-return-bot (или другое)
+   - НЕ добавляйте README, .gitignore, license
+   - Скопируйте URL: https://github.com/eth1r/ИМЯ_РЕПОЗИТОРИЯ.git
+
+2. ВЫПОЛНИТЕ КОМАНДЫ (в папке incoming_lids):
+
+# Добавить все изменения
+git add .
+
+# Создать коммит
+git commit -m "feat: adapt bot for product returns with advanced features"
+
+# Удалить старый remote
+git remote remove origin
+
+# Добавить ваш GitHub (ЗАМЕНИТЕ ИМЯ_РЕПОЗИТОРИЯ!)
+git remote add origin https://github.com/eth1r/ИМЯ_РЕПОЗИТОРИЯ.git
+
+# Отправить на GitHub
+git push -u origin main
+
+3. АВТОРИЗАЦИЯ (если попросит):
+   Username: eth1r
+   Password: [Personal Access Token]
+   
+   Токен создать тут: https://github.com/settings/tokens
+   - Generate new token (classic)
+   - Scope: repo
+   - Скопировать и использовать вместо пароля
+
+=== ГОТОВО! ===
+
+Проверьте: https://github.com/eth1r/ИМЯ_РЕПОЗИТОРИЯ
