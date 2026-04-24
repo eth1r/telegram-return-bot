@@ -1,257 +1,224 @@
-# Telegram-бот для оформления возврата товара
+# 🤖 Telegram Product Return Bot
 
-Интеллектуальный Telegram-бот на базе OpenAI для автоматизированного сбора заявок на возврат товаров. Бот ведет естественный диалог с клиентом, собирает необходимую информацию и отправляет структурированную заявку операторам.
+AI-powered Telegram bot for automated product return request processing using OpenAI GPT. Conducts natural conversations, intelligently collects data, and sends structured requests to operators.
 
-## 🎯 Возможности
+[![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![aiogram](https://img.shields.io/badge/aiogram-3.13.1-blue.svg)](https://docs.aiogram.dev/)
+[![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4-green.svg)](https://openai.com/)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-- **Естественный диалог** - бот общается как живой человек, используя OpenAI GPT
-- **Умный сбор данных** - автоматически извлекает информацию из свободного текста
-- **Мягкий дозапрос** - ненавязчиво запрашивает дополнительные полезные данные
-- **Защита от ошибок** - не перезаписывает уже собранные данные
-- **Валидация полей** - проверяет корректность введенных данных
-- **Поддержка proxy** - работает через proxy для OpenAI и Telegram API
-- **Rate limiting** - защита от спама без лишних вызовов LLM
-- **Production-ready** - готов к деплою с Docker
+## 🎯 What It Does
 
-## 📋 Собираемые данные
+This bot automates the product return process by:
+- Having natural conversations with customers using GPT
+- Extracting structured data from free-form text
+- Validating all inputs with domain-specific rules
+- Protecting collected data from accidental overwrites
+- Sending formatted requests to operator chat
 
-### Обязательные поля:
-- **Имя клиента** - минимум 2 символа
-- **Контакт** - телефон, email или Telegram username
-- **Номер заказа** - формат: буквы, цифры, дефис (3-30 символов)
-- **Название товара** - что возвращается
-- **Причина возврата** - подробное описание
-- **Состояние товара** - "не использовался", "вскрыт", "использовался", "повреждён"
+## 🏗️ Architecture
 
-### Необязательные поля (дозапрашиваются):
-- **Дата покупки** - когда был приобретен товар
-- **Способ возврата** - "на карту", "на исходный способ оплаты", "обмен", "уточнит оператор"
+```
+┌─────────────┐      ┌──────────────┐      ┌─────────────┐
+│   Telegram  │─────▶│  Bot Handler │─────▶│  Workflow   │
+│    User     │◀─────│   (aiogram)  │◀─────│   Service   │
+└─────────────┘      └──────────────┘      └──────┬──────┘
+                                                   │
+                     ┌─────────────────────────────┼─────────────┐
+                     │                             │             │
+              ┌──────▼──────┐            ┌────────▼────────┐   ┌▼──────────┐
+              │   OpenAI    │            │  Session Store  │   │ Operator  │
+              │  Assistant  │            │   (in-memory)   │   │ Notifier  │
+              └─────────────┘            └─────────────────┘   └───────────┘
+```
 
-## 🚀 Быстрый старт
+## 🛠️ Tech Stack
 
-### 1. Установка зависимостей
+- **Python 3.12+** - Core language
+- **aiogram 3.13** - Telegram Bot framework
+- **OpenAI API** - GPT-4 for natural language processing
+- **httpx** - Async HTTP client with proxy support
+- **pydantic** - Data validation and settings management
+- **Docker** - Containerization for deployment
+
+## ✨ Key Features
+
+### 🧠 Intelligent Data Collection
+- Extracts information from natural language
+- Handles multiple data points in single message
+- Validates domain-specific fields (order numbers, product names)
+- Soft follow-up for optional fields without being pushy
+
+### 🛡️ Data Protection
+- **State machine** with explicit field confirmation flags
+- **No overwrites** of already confirmed required fields
+- **Validation** prevents accepting obviously invalid data
+- **Rate limiting** protects against spam (checked before LLM call)
+
+### 🌐 Network Features
+- **Proxy support** for both OpenAI and Telegram APIs
+- Works in regions where services are blocked
+- URL-encoding support for special characters in credentials
+
+### 📊 Collected Data
+
+**Required:**
+- Customer name
+- Contact (phone/email/Telegram)
+- Order number (validated format)
+- Product name
+- Return reason
+- Item condition
+
+**Optional (soft follow-up):**
+- Purchase date
+- Refund method
+
+## 🚀 Quick Start
+
+### Local Development
 
 ```bash
+# Clone repository
+git clone https://github.com/eth1r/telegram-return-bot.git
+cd telegram-return-bot
+
+# Install dependencies
 pip install -r requirements.txt
-```
 
-### 2. Настройка переменных окружения
-
-Создайте файл `.env` на основе `.env.example`:
-
-```bash
+# Configure environment
 cp .env.example .env
-```
+# Edit .env with your credentials:
+# - TELEGRAM_BOT_TOKEN (from @BotFather)
+# - OPERATOR_CHAT_ID (use /chatid command)
+# - OPENAI_API_KEY
 
-Заполните обязательные переменные:
-
-```bash
-# Telegram Bot Token (получите у @BotFather)
-TELEGRAM_BOT_TOKEN=your_bot_token_here
-
-# ID чата для отправки заявок (используйте команду /chatid в нужном чате)
-OPERATOR_CHAT_ID=your_chat_id_here
-
-# OpenAI API Key
-OPENAI_API_KEY=your_openai_api_key_here
-```
-
-### 3. Запуск бота
-
-```bash
+# Run bot
 python main.py
 ```
 
-### 4. Настройка операторского чата
-
-1. Добавьте бота в группу/чат, куда должны приходить заявки
-2. Отправьте команду `/chatid` в этом чате
-3. Скопируйте полученный Chat ID в `.env` как `OPERATOR_CHAT_ID`
-4. Перезапустите бота
-
-## 🐳 Запуск через Docker
-
-### Сборка и запуск:
+### Docker Deployment
 
 ```bash
+# Build and run
 docker-compose up -d
-```
 
-### Просмотр логов:
-
-```bash
+# View logs
 docker-compose logs -f
-```
 
-### Остановка:
-
-```bash
+# Stop
 docker-compose down
 ```
 
-## ⚙️ Конфигурация
+## 💬 Example Conversation
 
-### Основные настройки
+```
+User: /start
+Bot: Hello! I'll help you process a product return. What's your name?
+
+User: John
+Bot: John, please provide your order number.
+
+User: ORD-12345
+Bot: What product would you like to return?
+
+User: Samsung Galaxy S23
+Bot: What is the reason for the return?
+
+User: Screen doesn't work properly
+Bot: What is the condition of the item?
+
+User: Used for 2 days
+Bot: When did you purchase the product?
+
+User: March 15
+Bot: How would you prefer the refund: to card, original payment method, or exchange?
+
+User: To card
+Bot: Thank you! I've forwarded your return request to a specialist.
+```
+
+## ⚙️ Configuration
+
+### Required Environment Variables
 
 ```bash
-# OpenAI модель (по умолчанию: gpt-4.1-mini)
-OPENAI_MODEL=gpt-4.1-mini
+TELEGRAM_BOT_TOKEN=your_bot_token
+OPERATOR_CHAT_ID=your_chat_id
+OPENAI_API_KEY=your_openai_key
+```
 
-# Уровень логирования (DEBUG, INFO, WARNING, ERROR)
+### Optional Settings
+
+```bash
+# OpenAI
+OPENAI_MODEL=gpt-4.1-mini
+OPENAI_BASE_URL=https://api.openai.com/v1
+
+# Proxy (if needed)
+HTTP_PROXY=http://user:pass@host:port
+HTTPS_PROXY=http://user:pass@host:port
+
+# Rate Limiting
+RATE_LIMIT_MESSAGES=20
+RATE_LIMIT_WINDOW_SECONDS=3600
+
+# Logging
 LOG_LEVEL=INFO
 ```
 
-### Proxy (опционально)
-
-Если OpenAI API или Telegram API заблокированы в вашем регионе:
-
-```bash
-HTTP_PROXY=http://username:password@host:port
-HTTPS_PROXY=http://username:password@host:port
-```
-
-**Важно:** Если пароль содержит спецсимволы, используйте URL-encoding:
-- `@` → `%40`
-- `:` → `%3A`
-- `/` → `%2F`
-- `?` → `%3F`
-- `#` → `%23`
-
-Подробнее: [PROXY.md](PROXY.md)
-
-### Rate Limiting (опционально)
-
-Защита от спама и чрезмерного использования API:
-
-```bash
-# Максимум сообщений от одного пользователя
-RATE_LIMIT_MESSAGES=20
-
-# Временное окно в секундах (по умолчанию: 3600 = 1 час)
-RATE_LIMIT_WINDOW_SECONDS=3600
-```
-
-Подробнее: [RATE_LIMITING.md](RATE_LIMITING.md)
-
-## 💬 Пример диалога
+## 📁 Project Structure
 
 ```
-Пользователь: /start
-Бот: Здравствуйте! Я помогу вам оформить возврат товара. Как вас зовут?
-
-Пользователь: Андрей
-Бот: Андрей, укажите номер вашего заказа.
-
-Пользователь: ORD-12345
-Бот: Какой товар вы хотите вернуть?
-
-Пользователь: Смартфон Samsung
-Бот: По какой причине вы хотите вернуть товар?
-
-Пользователь: Не подошел размер экрана
-Бот: В каком состоянии находится товар?
-
-Пользователь: Вскрыт, но не использовался
-Бот: Когда вы приобрели товар? Укажите примерную дату покупки.
-
-Пользователь: 15 апреля
-Бот: Как вам удобнее получить возврат: на карту, на исходный способ оплаты или обмен на другой товар?
-
-Пользователь: На карту
-Бот: Спасибо! Я передал вашу заявку на возврат специалисту. Мы свяжемся с вами в ближайшее время.
+telegram-return-bot/
+├── bot/                    # Telegram bot layer
+│   ├── handlers/          # Command & message handlers
+│   └── utils/             # Formatting utilities
+├── core/                  # Core application
+│   ├── config.py         # Settings management
+│   ├── schemas.py        # Data models & validation
+│   └── logging.py        # Logging configuration
+├── services/             # Business logic
+│   ├── assistant/        # OpenAI integration
+│   ├── storage/          # Session management
+│   ├── telegram/         # Operator notifications
+│   └── workflow.py       # Main workflow logic
+├── docs/                 # Documentation
+├── main.py              # Entry point
+├── requirements.txt     # Dependencies
+├── Dockerfile          # Docker image
+└── docker-compose.yml  # Docker Compose config
 ```
 
-## 🎛️ Команды бота
+## 🔒 Security
 
-- `/start` - начать новый диалог
-- `/reset` - сбросить текущий диалог и начать заново
-- `/chatid` - показать ID текущего чата (для настройки OPERATOR_CHAT_ID)
+- ✅ Secrets stored in `.env` (not committed)
+- ✅ Rate limiting prevents spam
+- ✅ Input validation on all fields
+- ✅ State machine prevents data corruption
+- ✅ Proxy credentials support URL-encoding
 
-## 📁 Структура проекта
+## 📚 Documentation
 
-```
-incoming_lids/
-├── bot/                    # Telegram бот
-│   ├── handlers/          # Обработчики команд и сообщений
-│   └── utils/             # Утилиты (форматирование)
-├── core/                  # Ядро приложения
-│   ├── config.py         # Настройки
-│   ├── schemas.py        # Модели данных
-│   └── logging.py        # Логирование
-├── services/             # Бизнес-логика
-│   ├── assistant/        # Интеграция с OpenAI
-│   ├── storage/          # Хранение сессий
-│   ├── telegram/         # Отправка заявок
-│   └── workflow.py       # Основной workflow
-├── main.py               # Точка входа
-├── requirements.txt      # Зависимости
-├── Dockerfile           # Docker-образ
-└── docker-compose.yml   # Docker Compose
-```
+- [Deployment Guide](docs/DEPLOYMENT.md)
+- [Proxy Configuration](docs/PROXY.md)
+- [Rate Limiting Details](docs/RATE_LIMITING.md)
+- [Changelog](docs/CHANGELOG.md)
 
-## 🔧 Технологии
+## 🤝 Contributing
 
-- **Python 3.12+**
-- **aiogram 3.13+** - фреймворк для Telegram ботов
-- **OpenAI API** - GPT для обработки диалогов
-- **httpx** - HTTP-клиент с поддержкой proxy
-- **aiohttp-socks** - proxy для Telegram API
-- **pydantic** - валидация данных
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-## 📚 Документация
+## 📝 License
 
-- [CHANGELOG.md](CHANGELOG.md) - полная история изменений
-- [DEPLOYMENT.md](DEPLOYMENT.md) - инструкции по деплою
-- [DEPLOY_CHECKLIST.md](DEPLOY_CHECKLIST.md) - чеклист перед деплоем
-- [PROXY.md](PROXY.md) - настройка proxy
-- [RATE_LIMITING.md](RATE_LIMITING.md) - защита от спама
-- [WORKFLOW_FIX_FINAL.md](WORKFLOW_FIX_FINAL.md) - детали workflow
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🛡️ Безопасность
+## 🙏 Acknowledgments
 
-- Все секреты хранятся в `.env` (не коммитится в Git)
-- Rate limiting защищает от спама
-- Валидация всех входных данных
-- Защита от перезаписи собранных данных
-- Логирование для аудита
-
-## 🚨 Troubleshooting
-
-### Бот не отвечает на сообщения
-
-1. Проверьте, что бот запущен: `docker-compose ps` или проверьте процесс
-2. Проверьте логи: `docker-compose logs -f` или `tail -f logs/bot.log`
-3. Убедитесь, что `TELEGRAM_BOT_TOKEN` корректный
-
-### Заявки не приходят в операторский чат
-
-1. Убедитесь, что бот добавлен в чат
-2. Проверьте `OPERATOR_CHAT_ID` командой `/chatid` в нужном чате
-3. Убедитесь, что бот имеет права на отправку сообщений
-
-### Ошибки подключения к OpenAI API
-
-1. Проверьте `OPENAI_API_KEY`
-2. Если API заблокирован, настройте proxy в `.env`
-3. Проверьте баланс на аккаунте OpenAI
-
-### Ошибки подключения к Telegram API
-
-1. Если Telegram заблокирован, настройте proxy в `.env`
-2. Убедитесь, что установлен `aiohttp-socks`: `pip install aiohttp-socks`
-
-## 📝 Лицензия
-
-MIT License
-
-## 🤝 Поддержка
-
-Если у вас возникли вопросы или проблемы:
-1. Проверьте документацию в папке проекта
-2. Изучите логи бота
-3. Создайте issue в репозитории
+- Built with [aiogram](https://docs.aiogram.dev/) - modern Telegram Bot framework
+- Powered by [OpenAI](https://openai.com/) GPT models
+- Inspired by real-world customer service automation needs
 
 ---
 
-**Версия:** 2.0  
-**Последнее обновление:** Апрель 2026
+**Made with ❤️ for efficient customer service automation**

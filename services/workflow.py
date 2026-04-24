@@ -110,6 +110,19 @@ class SupportWorkflowService:
         )
         
         # Обновляем ticket
+        # Собираем подтвержденные поля
+        confirmed_fields = set()
+        if session.name_confirmed:
+            confirmed_fields.add("name")
+        if session.order_number_confirmed:
+            confirmed_fields.add("order_number")
+        if session.product_name_confirmed:
+            confirmed_fields.add("product_name")
+        if session.return_reason_confirmed:
+            confirmed_fields.add("return_reason")
+        if session.item_condition_confirmed:
+            confirmed_fields.add("item_condition")
+        
         if user_declined:
             # Если пользователь отказался, помечаем соответствующий флаг
             if waiting_for_purchase_date:
@@ -120,11 +133,24 @@ class SupportWorkflowService:
                 logger.info("User declined to provide refund_method for user_id=%s", session.user_id)
             else:
                 # Отказ на этапе сбора обязательных полей - обновляем как обычно
-                session.ticket.merge(turn.extracted_ticket, protect_required=True)
+                session.ticket.merge(turn.extracted_ticket, protect_required=True, confirmed_fields=confirmed_fields)
         else:
             # Пользователь дал нормальный ответ
-            # Защищаем обязательные поля от перезаписи, если они уже заполнены
-            session.ticket.merge(turn.extracted_ticket, protect_required=True)
+            # Защищаем обязательные поля от перезаписи, если они уже заполнены или подтверждены
+            old_ticket = session.ticket.model_copy()
+            session.ticket.merge(turn.extracted_ticket, protect_required=True, confirmed_fields=confirmed_fields)
+            
+            # Помечаем поля как подтвержденные, если они были заполнены
+            if not session.name_confirmed and session.ticket.name and not old_ticket.name:
+                session.name_confirmed = True
+            if not session.order_number_confirmed and session.ticket.order_number and not old_ticket.order_number:
+                session.order_number_confirmed = True
+            if not session.product_name_confirmed and session.ticket.product_name and not old_ticket.product_name:
+                session.product_name_confirmed = True
+            if not session.return_reason_confirmed and session.ticket.return_reason and not old_ticket.return_reason:
+                session.return_reason_confirmed = True
+            if not session.item_condition_confirmed and session.ticket.item_condition and not old_ticket.item_condition:
+                session.item_condition_confirmed = True
         
         session.started = True
 

@@ -71,18 +71,24 @@ class SupportTicket(BaseModel):
             return None
         return cleaned
 
-    def merge(self, other: "SupportTicket", protect_required: bool = False) -> None:
+    def merge(self, other: "SupportTicket", protect_required: bool = False, confirmed_fields: set[str] | None = None) -> None:
         """
         Объединяет данные из другого тикета.
         
         Args:
             other: Тикет с новыми данными
             protect_required: Если True, не перезаписывает уже заполненные обязательные поля
+            confirmed_fields: Набор полей, которые уже подтверждены и не должны перезаписываться
         """
         required_fields = {"name", "contact", "order_number", "product_name", "return_reason", "item_condition"}
+        confirmed_fields = confirmed_fields or set()
         
         for field_name, value in other.model_dump().items():
             if value not in (None, ""):
+                # Если поле подтверждено - не перезаписываем
+                if field_name in confirmed_fields:
+                    continue
+                
                 # Если защита включена и поле обязательное и уже заполнено - не перезаписываем
                 if protect_required and field_name in required_fields:
                     current_value = getattr(self, field_name)
@@ -137,6 +143,13 @@ class SupportSession(BaseModel):
     purchase_date_asked: bool = False
     refund_method_asked: bool = False
     
+    # Флаги подтверждения обязательных полей (защита от перезаписи)
+    name_confirmed: bool = False
+    order_number_confirmed: bool = False
+    product_name_confirmed: bool = False
+    return_reason_confirmed: bool = False
+    item_condition_confirmed: bool = False
+    
     # Rate limiting
     message_count: int = 0
     rate_limit_notified: bool = False  # Флаг: уведомление о лимите уже отправлено
@@ -165,6 +178,11 @@ class SupportSession(BaseModel):
         self.history = []
         self.purchase_date_asked = False
         self.refund_method_asked = False
+        self.name_confirmed = False
+        self.order_number_confirmed = False
+        self.product_name_confirmed = False
+        self.return_reason_confirmed = False
+        self.item_condition_confirmed = False
         # Rate limiting НЕ сбрасывается при reset диалога
 
     def _append_history(self, role: MessageRole, text: str) -> None:
