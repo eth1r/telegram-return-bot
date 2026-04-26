@@ -127,6 +127,8 @@ class SupportSession(BaseModel):
     chat_id: int
     telegram_username: str | None = None
     telegram_first_name: str | None = None
+    web_session_id: str | None = None  # Для web-сессий
+    is_web: bool = False  # Флаг: это web-сессия
     started: bool = False
     submitted: bool = False
     ticket: SupportTicket = Field(default_factory=SupportTicket)

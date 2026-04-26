@@ -13,4 +13,5 @@ COPY . .
 
 USER appuser
 
-CMD ["python", "main.py"]
+# Запускаем оба сервиса: Telegram бот + Web API
+CMD ["python", "run_services.py"]

@@ -1,0 +1,176 @@
+/**
+ * Return Assistant Widget
+ * Виджет для оформления возврата товара
+ * 
+ * Использование:
+ * <script src="https://portfolio.aiworker43.ru/widget.js"></script>
+ */
+
+(function() {
+    'use strict';
+
+    // Configuration
+    const API_URL = 'https://portfolio.aiworker43.ru/api/chat';
+    
+    // Inject CSS
+    const style = document.createElement('style');
+    style.textContent = `
+        .return-assistant-button{position:fixed;bottom:20px;right:20px;width:60px;height:60px;border-radius:50%;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff;border:none;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.15);display:flex;align-items:center;justify-content:center;font-size:24px;z-index:9998;transition:transform .2s,box-shadow .2s}.return-assistant-button:hover{transform:scale(1.05);box-shadow:0 6px 16px rgba(0,0,0,.2)}.return-assistant-button.hidden{display:none}.return-assistant-widget{position:fixed;bottom:90px;right:20px;width:380px;height:600px;background:#fff;border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,.12);display:none;flex-direction:column;z-index:9999;overflow:hidden}.return-assistant-widget.open{display:flex}.return-assistant-header{background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff;padding:16px 20px;display:flex;justify-content:space-between;align-items:center}.return-assistant-header h3{margin:0;font-size:18px;font-weight:600}.return-assistant-close{background:0 0;border:none;color:#fff;font-size:24px;cursor:pointer;padding:0;width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:50%;transition:background .2s}.return-assistant-close:hover{background:rgba(255,255,255,.1)}.return-assistant-messages{flex:1;overflow-y:auto;padding:20px;background:#f7f9fc}.return-assistant-message{margin-bottom:16px;display:flex;flex-direction:column}.return-assistant-message.user{align-items:flex-end}.return-assistant-message.assistant{align-items:flex-start}.return-assistant-message-bubble{max-width:75%;padding:12px 16px;border-radius:16px;word-wrap:break-word;white-space:pre-wrap}.return-assistant-message.user .return-assistant-message-bubble{background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff;border-bottom-right-radius:4px}.return-assistant-message.assistant .return-assistant-message-bubble{background:#fff;color:#333;border-bottom-left-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.08)}.return-assistant-loading{display:none;padding:12px 16px;background:#fff;border-radius:16px;border-bottom-left-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.08);max-width:75%}.return-assistant-loading.active{display:block}.return-assistant-loading-dots{display:flex;gap:4px}.return-assistant-loading-dot{width:8px;height:8px;border-radius:50%;background:#667eea;animation:bounce 1.4s infinite ease-in-out both}.return-assistant-loading-dot:nth-child(1){animation-delay:-.32s}.return-assistant-loading-dot:nth-child(2){animation-delay:-.16s}@keyframes bounce{0%,80%,100%{transform:scale(0)}40%{transform:scale(1)}}.return-assistant-input-container{padding:16px 20px;background:#fff;border-top:1px solid #e5e7eb;display:flex;gap:12px}.return-assistant-input{flex:1;padding:12px 16px;border:1px solid #e5e7eb;border-radius:24px;font-size:14px;outline:0;transition:border-color .2s}.return-assistant-input:focus{border-color:#667eea}.return-assistant-send{width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:18px;transition:transform .2s}.return-assistant-send:hover:not(:disabled){transform:scale(1.05)}.return-assistant-send:disabled{opacity:.5;cursor:not-allowed}@media (max-width:480px){.return-assistant-widget{width:calc(100vw - 40px);height:calc(100vh - 120px);bottom:80px;right:20px}}
+    `;
+    document.head.appendChild(style);
+
+    // Inject HTML
+    const widgetHTML = `
+        <button class="return-assistant-button" id="returnAssistantButton" aria-label="Открыть помощник по возврату">💬</button>
+        <div class="return-assistant-widget" id="returnAssistantWidget">
+            <div class="return-assistant-header">
+                <h3>Помощник по возврату</h3>
+                <button class="return-assistant-close" id="returnAssistantClose" aria-label="Закрыть">×</button>
+            </div>
+            <div class="return-assistant-messages" id="returnAssistantMessages">
+                <div class="return-assistant-message assistant">
+                    <div class="return-assistant-message-bubble">Здравствуйте! Я помогу оформить возврат товара. Напишите сообщение, и мы начнём.</div>
+                </div>
+                <div class="return-assistant-loading" id="returnAssistantLoading">
+                    <div class="return-assistant-loading-dots">
+                        <div class="return-assistant-loading-dot"></div>
+                        <div class="return-assistant-loading-dot"></div>
+                        <div class="return-assistant-loading-dot"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="return-assistant-input-container">
+                <input type="text" class="return-assistant-input" id="returnAssistantInput" placeholder="Напишите сообщение..." maxlength="2000"/>
+                <button class="return-assistant-send" id="returnAssistantSend" aria-label="Отправить">➤</button>
+            </div>
+        </div>
+    `;
+
+    // Wait for DOM to be ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+
+    function init() {
+        // Inject widget HTML
+        const container = document.createElement('div');
+        container.innerHTML = widgetHTML;
+        document.body.appendChild(container);
+
+        // Get session ID
+        function getSessionId() {
+            let sessionId = localStorage.getItem('return_assistant_session_id');
+            if (!sessionId) {
+                sessionId = 'web_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+                localStorage.setItem('return_assistant_session_id', sessionId);
+            }
+            return sessionId;
+        }
+
+        const sessionId = getSessionId();
+
+        // Elements
+        const button = document.getElementById('returnAssistantButton');
+        const widget = document.getElementById('returnAssistantWidget');
+        const closeBtn = document.getElementById('returnAssistantClose');
+        const messagesContainer = document.getElementById('returnAssistantMessages');
+        const input = document.getElementById('returnAssistantInput');
+        const sendBtn = document.getElementById('returnAssistantSend');
+        const loading = document.getElementById('returnAssistantLoading');
+
+        // State
+        let isOpen = false;
+        let isSending = false;
+
+        // Toggle widget
+        function toggleWidget() {
+            isOpen = !isOpen;
+            if (isOpen) {
+                widget.classList.add('open');
+                button.classList.add('hidden');
+                input.focus();
+            } else {
+                widget.classList.remove('open');
+                button.classList.remove('hidden');
+            }
+        }
+
+        // Add message to chat
+        function addMessage(text, role) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `return-assistant-message ${role}`;
+            
+            const bubbleDiv = document.createElement('div');
+            bubbleDiv.className = 'return-assistant-message-bubble';
+            bubbleDiv.textContent = text;
+            
+            messageDiv.appendChild(bubbleDiv);
+            messagesContainer.insertBefore(messageDiv, loading);
+            
+            // Scroll to bottom
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        // Send message
+        async function sendMessage() {
+            const message = input.value.trim();
+            if (!message || isSending) return;
+
+            // Add user message
+            addMessage(message, 'user');
+            input.value = '';
+
+            // Show loading
+            isSending = true;
+            sendBtn.disabled = true;
+            input.disabled = true;
+            loading.classList.add('active');
+
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        session_id: sessionId,
+                        message: message,
+                    }),
+                });
+
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+
+                const data = await response.json();
+                
+                // Add assistant response
+                addMessage(data.reply, 'assistant');
+
+            } catch (error) {
+                console.error('Error sending message:', error);
+                addMessage('Произошла ошибка. Попробуйте еще раз.', 'assistant');
+            } finally {
+                // Hide loading
+                isSending = false;
+                sendBtn.disabled = false;
+                input.disabled = false;
+                loading.classList.remove('active');
+                input.focus();
+            }
+        }
+
+        // Event listeners
+        button.addEventListener('click', toggleWidget);
+        closeBtn.addEventListener('click', toggleWidget);
+        sendBtn.addEventListener('click', sendMessage);
+        input.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+    }
+})();
