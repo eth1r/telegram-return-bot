@@ -77,10 +77,9 @@ class SupportTicket(BaseModel):
         
         Args:
             other: Тикет с новыми данными
-            protect_required: Если True, не перезаписывает уже заполненные обязательные поля
+            protect_required: Deprecated, используйте confirmed_fields
             confirmed_fields: Набор полей, которые уже подтверждены и не должны перезаписываться
         """
-        required_fields = {"name", "contact", "order_number", "product_name", "return_reason", "item_condition"}
         confirmed_fields = confirmed_fields or set()
         
         for field_name, value in other.model_dump().items():
@@ -88,12 +87,6 @@ class SupportTicket(BaseModel):
                 # Если поле подтверждено - не перезаписываем
                 if field_name in confirmed_fields:
                     continue
-                
-                # Если защита включена и поле обязательное и уже заполнено - не перезаписываем
-                if protect_required and field_name in required_fields:
-                    current_value = getattr(self, field_name)
-                    if current_value not in (None, ""):
-                        continue  # Пропускаем перезапись
                 
                 setattr(self, field_name, value)
 
