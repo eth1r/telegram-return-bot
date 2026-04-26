@@ -10,7 +10,7 @@
     'use strict';
 
     // Configuration
-    const API_URL = 'https://portfolio.aiworker43.ru/api/chat';
+    const API_URL = 'http://130.49.151.250:8003/api/chat';  // Временно используем IP:port, потом настроим nginx
     
     // Inject CSS
     const style = document.createElement('style');

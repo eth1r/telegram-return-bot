@@ -66,7 +66,9 @@ app = FastAPI(
 settings = get_settings()
 allowed_origins = [
     "https://portfolio.aiworker43.ru",
+    "http://portfolio.aiworker43.ru",
     "http://localhost:3000",  # для локальной разработки
+    "*",  # временно для тестирования
 ]
 
 app.add_middleware(
