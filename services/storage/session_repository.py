@@ -44,6 +44,7 @@ class InMemorySessionRepository:
                 telegram_first_name=None,
                 web_session_id=session_id,
                 is_web=True,
+                is_demo=True,  # web-сессии всегда демо: заявка не уйдёт оператору
             )
             self._web_sessions[session_id] = session
         return session

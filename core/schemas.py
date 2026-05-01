@@ -74,20 +74,20 @@ class SupportTicket(BaseModel):
     def merge(self, other: "SupportTicket", protect_required: bool = False, confirmed_fields: set[str] | None = None) -> None:
         """
         Объединяет данные из другого тикета.
-        
+
         Args:
             other: Тикет с новыми данными
             protect_required: Deprecated, используйте confirmed_fields
             confirmed_fields: Набор полей, которые уже подтверждены и не должны перезаписываться
         """
         confirmed_fields = confirmed_fields or set()
-        
+
         for field_name, value in other.model_dump().items():
             if value not in (None, ""):
                 # Если поле подтверждено - не перезаписываем
                 if field_name in confirmed_fields:
                     continue
-                
+
                 setattr(self, field_name, value)
 
     def is_complete(self) -> bool:
@@ -128,23 +128,24 @@ class SupportSession(BaseModel):
     telegram_username: str | None = None
     telegram_first_name: str | None = None
     web_session_id: str | None = None  # Для web-сессий
-    is_web: bool = False  # Флаг: это web-сессия
+    is_web: bool = False   # Флаг: это web-сессия
+    is_demo: bool = False  # Флаг: демо-режим — заявка не отправляется оператору
     started: bool = False
     submitted: bool = False
     ticket: SupportTicket = Field(default_factory=SupportTicket)
     history: list[DialogueMessage] = Field(default_factory=list)
-    
+
     # Флаги для мягкого дозапроса необязательных полей
     purchase_date_asked: bool = False
     refund_method_asked: bool = False
-    
+
     # Флаги подтверждения обязательных полей (защита от перезаписи)
     name_confirmed: bool = False
     order_number_confirmed: bool = False
     product_name_confirmed: bool = False
     return_reason_confirmed: bool = False
     item_condition_confirmed: bool = False
-    
+
     # Rate limiting
     message_count: int = 0
     rate_limit_notified: bool = False  # Флаг: уведомление о лимите уже отправлено

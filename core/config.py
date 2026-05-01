@@ -22,6 +22,12 @@ class Settings(BaseSettings):
 
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 
+    # Web demo: разрешить ли отправку заявок оператору из web-виджета.
+    # False по умолчанию — web всегда демо-режим, если не задан явно.
+    web_demo_submit_to_operator: bool = Field(
+        default=False, alias="WEB_DEMO_SUBMIT_TO_OPERATOR"
+    )
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

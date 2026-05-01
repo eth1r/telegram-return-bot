@@ -1,8 +1,10 @@
 import logging
+import time
+from collections import defaultdict
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -76,6 +78,40 @@ app.add_middleware(
     allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["*"],
 )
+
+
+# ── IP-based rate limiting (поверх session rate limit) ────────────────────
+# Session rate limit защищает одну сессию, но не мешает создавать новые.
+# IP rate limit ограничивает количество запросов с одного адреса за час.
+
+_ip_requests: dict[str, list[float]] = defaultdict(list)
+
+WEB_IP_RATE_LIMIT = 40       # максимум запросов с одного IP
+WEB_IP_RATE_WINDOW = 3600    # за 1 час (секунды)
+
+
+def _check_ip_rate_limit(ip: str) -> bool:
+    """Возвращает True если лимит НЕ превышен и запрос можно обработать."""
+    now = time.time()
+    window_start = now - WEB_IP_RATE_WINDOW
+
+    # Убираем устаревшие записи
+    _ip_requests[ip] = [t for t in _ip_requests[ip] if t > window_start]
+
+    if len(_ip_requests[ip]) >= WEB_IP_RATE_LIMIT:
+        logger.warning("IP rate limit exceeded: ip=%s count=%d", ip, len(_ip_requests[ip]))
+        return False
+
+    _ip_requests[ip].append(now)
+    return True
+
+
+def _get_client_ip(request: Request) -> str:
+    """Берём реальный IP с учётом nginx X-Forwarded-For."""
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
 
 
 # ── Вспомогательная функция обработки чата ─────────────────────────────────
@@ -153,12 +189,19 @@ async def health_check_prefixed():
 
 
 @app.post("/api/return-bot/chat", response_model=ChatResponse)
-async def chat_prefixed(request: ChatRequest):
+async def chat_prefixed(request: Request, body: ChatRequest):
     """
     Chat endpoint для портфолио-виджета.
     Вызывается через nginx-прокси с портфолио-сайта.
+    Имеет дополнительный IP rate limit поверх session rate limit.
     """
-    return await _process_chat(request)
+    ip = _get_client_ip(request)
+    if not _check_ip_rate_limit(ip):
+        raise HTTPException(
+            status_code=429,
+            detail="Слишком много запросов. Попробуйте позже.",
+        )
+    return await _process_chat(body)
 
 
 @app.delete("/api/return-bot/session/{session_id}", status_code=204)
