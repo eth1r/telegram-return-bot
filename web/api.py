@@ -34,21 +34,19 @@ class ChatResponse(BaseModel):
 async def lifespan(app: FastAPI):
     """Инициализация и очистка ресурсов"""
     global session_repository, workflow
-    
+
     settings = get_settings()
     logger.info("Initializing web API services...")
-    
-    # Инициализация
+
     session_repository = InMemorySessionRepository()
     assistant = OpenAISupportAssistant(settings=settings)
     notifier = OperatorNotifier(bot=None, settings=settings)
     workflow = SupportWorkflowService(assistant=assistant, notifier=notifier)
-    
+
     logger.info("Web API services initialized")
-    
+
     yield
-    
-    # Очистка
+
     logger.info("Shutting down web API services...")
     if workflow:
         await workflow.close()
@@ -62,23 +60,59 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS - разрешаем только наш сайт
+# CORS — разрешаем только нужные origins
 settings = get_settings()
 allowed_origins = [
     "https://portfolio.aiworker43.ru",
     "http://portfolio.aiworker43.ru",
-    "http://localhost:3000",  # для локальной разработки
-    "*",  # временно для тестирования
+    "http://localhost:3000",
+    "http://localhost:5173",
 ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["POST", "GET"],
+    allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["*"],
 )
 
+
+# ── Вспомогательная функция обработки чата ─────────────────────────────────
+
+async def _process_chat(request: ChatRequest) -> ChatResponse:
+    """Общая логика обработки сообщения (используется в обоих роутах)."""
+    if not session_repository or not workflow:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+
+    try:
+        web_user_id = hash(f"web_{request.session_id}") & 0x7FFFFFFF
+
+        session = session_repository.get_or_create_web(
+            session_id=request.session_id,
+            user_id=web_user_id,
+        )
+
+        reply = await workflow.process_message(session, request.message)
+
+        if not reply:
+            reply = "Вы отправили слишком много сообщений. Пожалуйста, подождите."
+
+        done = session.submitted
+
+        return ChatResponse(reply=reply, done=done)
+
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to process web chat message")
+        raise HTTPException(
+            status_code=500,
+            detail="Не удалось обработать сообщение. Попробуйте позже.",
+        )
+
+
+# ── Оригинальные роуты (обратная совместимость) ─────────────────────────────
 
 @app.get("/health")
 async def health_check():
@@ -86,9 +120,14 @@ async def health_check():
     return {"status": "ok", "service": "return-bot-web-api"}
 
 
+@app.post("/api/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest):
+    """Оригинальный endpoint (оставлен для обратной совместимости)"""
+    return await _process_chat(request)
+
+
 @app.get("/widget.js")
 async def get_widget_js():
-    """Раздача JS файла виджета"""
     widget_path = Path(__file__).parent / "widget.js"
     if not widget_path.exists():
         raise HTTPException(status_code=404, detail="Widget file not found")
@@ -97,52 +136,42 @@ async def get_widget_js():
 
 @app.get("/widget.html")
 async def get_widget_html():
-    """Раздача HTML файла виджета (для тестирования)"""
     widget_path = Path(__file__).parent / "widget.html"
     if not widget_path.exists():
         raise HTTPException(status_code=404, detail="Widget file not found")
     return FileResponse(widget_path, media_type="text/html")
 
 
-@app.post("/api/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
+# ── Роуты для портфолио-виджета (/api/return-bot/*) ────────────────────────
+# Nginx проксирует /api/return-bot/* → этому сервису.
+# Префикс позволяет nginx отличать return-bot от других API сервисов.
+
+@app.get("/api/return-bot/health")
+async def health_check_prefixed():
+    """Health check для портфолио-виджета"""
+    return {"status": "ok", "service": "return-bot-web-api"}
+
+
+@app.post("/api/return-bot/chat", response_model=ChatResponse)
+async def chat_prefixed(request: ChatRequest):
     """
-    Обработка сообщения от web-чата
-    
-    - session_id: уникальный идентификатор web-сессии (например, UUID)
-    - message: текст сообщения от пользователя
+    Chat endpoint для портфолио-виджета.
+    Вызывается через nginx-прокси с портфолио-сайта.
     """
-    if not session_repository or not workflow:
+    return await _process_chat(request)
+
+
+@app.delete("/api/return-bot/session/{session_id}", status_code=204)
+async def reset_session(session_id: str):
+    """
+    Сброс web-сессии — пользователь нажал «Начать заново».
+    Удаляет сессию из репозитория, следующее сообщение создаст новую.
+    """
+    if not session_repository:
         raise HTTPException(status_code=503, detail="Service not initialized")
-    
-    try:
-        # Создаем web-сессию с префиксом для отличия от Telegram
-        # user_id для web = hash(session_id) для уникальности
-        web_user_id = hash(f"web_{request.session_id}") & 0x7FFFFFFF  # положительное число
-        
-        session = session_repository.get_or_create_web(
-            session_id=request.session_id,
-            user_id=web_user_id,
-        )
-        
-        # Обрабатываем сообщение через общий workflow
-        reply = await workflow.process_message(session, request.message)
-        
-        # Если reply пустой (rate limit), возвращаем сообщение об ограничении
-        if not reply:
-            reply = "Вы отправили слишком много сообщений. Пожалуйста, подождите."
-        
-        # Проверяем, завершена ли заявка
-        done = session.submitted
-        
-        return ChatResponse(reply=reply, done=done)
-        
-    except Exception as e:
-        logger.exception("Failed to process web chat message")
-        raise HTTPException(
-            status_code=500,
-            detail="Не удалось обработать сообщение. Попробуйте позже."
-        )
+
+    session_repository.delete_web_session(session_id)
+    return  # 204 No Content
 
 
 if __name__ == "__main__":

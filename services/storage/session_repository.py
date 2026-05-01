@@ -28,7 +28,7 @@ class InMemorySessionRepository:
         session.telegram_username = telegram_username
         session.telegram_first_name = telegram_first_name
         return session
-    
+
     def get_or_create_web(
         self,
         session_id: str,
@@ -51,3 +51,7 @@ class InMemorySessionRepository:
     def reset(self, user_id: int) -> None:
         if user_id in self._sessions:
             self._sessions[user_id].reset()
+
+    def delete_web_session(self, session_id: str) -> None:
+        """Удаляет web-сессию. Следующее сообщение создаст новую чистую сессию."""
+        self._web_sessions.pop(session_id, None)
