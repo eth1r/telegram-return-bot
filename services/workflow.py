@@ -3,6 +3,7 @@ import time
 
 from core import SupportSession, get_settings
 from services.assistant import OpenAISupportAssistant
+from services.assistant.condition_detector import detect_item_condition
 from services.telegram import OperatorNotifier
 
 logger = logging.getLogger(__name__)
@@ -88,9 +89,19 @@ class SupportWorkflowService:
             conversation_history=history_before_turn,
             last_assistant_message=session.last_assistant_message,
             telegram_first_name=session.telegram_first_name,
+            is_demo=session.is_demo,
         )
 
         session.add_user_message(message_text)
+        
+        # Автоопределение состояния товара из сообщения пользователя
+        detected_condition = detect_item_condition(message_text)
+        if detected_condition and not session.ticket.item_condition:
+            logger.info(
+                "Auto-detected item_condition='%s' for user_id=%s from message",
+                detected_condition,
+                session.user_id
+            )
         
         # Проверяем, отказался ли пользователь от указания информации
         user_declined = self._check_user_declined(message_text)
@@ -141,6 +152,15 @@ class SupportWorkflowService:
             # Обновляем ticket (защищаем только подтвержденные поля)
             session.ticket.merge(turn.extracted_ticket, protect_required=False, confirmed_fields=confirmed_fields)
             
+            # Применяем автоопределенное состояние, если оно есть и item_condition еще не заполнен
+            if detected_condition and not session.ticket.item_condition:
+                session.ticket.item_condition = detected_condition
+                logger.info(
+                    "Applied auto-detected item_condition='%s' for user_id=%s",
+                    detected_condition,
+                    session.user_id
+                )
+            
             # Помечаем поля как подтвержденные, если они были успешно заполнены
             if not session.name_confirmed and session.ticket.name:
                 session.name_confirmed = True
@@ -160,8 +180,8 @@ class SupportWorkflowService:
         
         session.started = True
 
-        # Пересчитываем после обновления
-        required_complete = session.ticket.is_complete()
+        # Пересчитываем после обновления (учитываем демо-режим)
+        required_complete = session.ticket.is_complete(is_demo=session.is_demo)
         
         # Определяем, что нужно спросить дальше
         should_ask_optional = False
@@ -187,7 +207,7 @@ class SupportWorkflowService:
         
         # Определяем, готовы ли к отправке
         # Отправляем только если:
-        # 1. Обязательные поля собраны
+        # 1. Обязательные поля собраны (с учетом демо-режима)
         # 2. purchase_date либо заполнен, либо уже спрашивали
         # 3. refund_method либо заполнен, либо уже спрашивали
         # 4. Ассистент подтвердил готовность (ready_to_submit)

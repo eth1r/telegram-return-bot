@@ -90,17 +90,35 @@ class SupportTicket(BaseModel):
 
                 setattr(self, field_name, value)
 
-    def is_complete(self) -> bool:
-        return all(
-            [
-                self.name,
-                self.contact,
-                self.order_number,
-                self.product_name,
-                self.return_reason,
-                self.item_condition,
-            ]
-        )
+    def is_complete(self, is_demo: bool = False) -> bool:
+        """
+        Проверяет, все ли обязательные поля заполнены.
+        
+        Args:
+            is_demo: Если True, name и contact не обязательны (демо-режим)
+        """
+        if is_demo:
+            # В демо-режиме name и contact не обязательны
+            return all(
+                [
+                    self.order_number,
+                    self.product_name,
+                    self.return_reason,
+                    self.item_condition,
+                ]
+            )
+        else:
+            # В обычном режиме все поля обязательны
+            return all(
+                [
+                    self.name,
+                    self.contact,
+                    self.order_number,
+                    self.product_name,
+                    self.return_reason,
+                    self.item_condition,
+                ]
+            )
 
 
 class DialogueMessage(BaseModel):

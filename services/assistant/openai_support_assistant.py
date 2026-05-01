@@ -48,6 +48,7 @@ class OpenAISupportAssistant:
         conversation_history: list[DialogueMessage],
         last_assistant_message: str | None,
         telegram_first_name: str | None,
+        is_demo: bool = False,
     ) -> AssistantTurn:
         payload = {
             "model": self._settings.openai_model,
@@ -63,6 +64,7 @@ class OpenAISupportAssistant:
                         conversation_history=conversation_history,
                         last_assistant_message=last_assistant_message,
                         telegram_first_name=telegram_first_name,
+                        is_demo=is_demo,
                     ),
                 },
             ],
@@ -86,6 +88,7 @@ class OpenAISupportAssistant:
                 conversation_history=conversation_history,
                 last_assistant_message=last_assistant_message,
                 telegram_first_name=telegram_first_name,
+                is_demo=is_demo,
             )
 
     async def close(self) -> None:
@@ -124,6 +127,7 @@ class OpenAISupportAssistant:
         conversation_history: list[DialogueMessage],
         last_assistant_message: str | None,
         telegram_first_name: str | None,
+        is_demo: bool = False,
     ) -> str:
         ticket_json = json.dumps(current_ticket.model_dump(), ensure_ascii=False, indent=2)
         history_json = json.dumps(
@@ -136,6 +140,7 @@ class OpenAISupportAssistant:
 
         return (
             f"is_new_session: {str(is_new_session).lower()}\n"
+            f"is_demo: {str(is_demo).lower()}\n"
             f"telegram_first_name: {first_name}\n"
             f"current_ticket:\n{ticket_json}\n\n"
             f"conversation_history:\n{history_json}\n\n"
@@ -151,6 +156,7 @@ class OpenAISupportAssistant:
         conversation_history: list[DialogueMessage],
         last_assistant_message: str | None,
         telegram_first_name: str | None,
+        is_demo: bool = False,
     ) -> AssistantTurn:
         message = self._normalize_text(user_message)
         message_lower = message.lower()
@@ -230,12 +236,13 @@ class OpenAISupportAssistant:
             is_new_session=is_new_session,
             conversation_history=conversation_history,
             telegram_first_name=telegram_first_name,
+            is_demo=is_demo,
         )
 
         return AssistantTurn(
             reply=reply,
             extracted_ticket=extracted,
-            ready_to_submit=merged_ticket.is_complete(),
+            ready_to_submit=merged_ticket.is_complete(is_demo=is_demo),
         )
 
     def _build_fallback_reply(
@@ -245,15 +252,24 @@ class OpenAISupportAssistant:
         is_new_session: bool,
         conversation_history: list[DialogueMessage],
         telegram_first_name: str | None,
+        is_demo: bool = False,
     ) -> str:
-        if not conversation_history and is_new_session and not extracted.name and not merged_ticket.name:
-            return "Здравствуйте! Я помогу вам оформить возврат товара. Как вас зовут?"
+        if not conversation_history and is_new_session:
+            if is_demo:
+                # В демо-режиме сразу спрашиваем номер заказа
+                return "Здравствуйте! Я помогу вам оформить возврат товара. Укажите, пожалуйста, номер заказа."
+            else:
+                # В обычном режиме спрашиваем имя
+                if not extracted.name and not merged_ticket.name:
+                    return "Здравствуйте! Я помогу вам оформить возврат товара. Как вас зовут?"
 
-        if not merged_ticket.name:
-            return "Подскажите, как к вам обращаться?"
+        # В демо-режиме пропускаем name и contact
+        if not is_demo:
+            if not merged_ticket.name:
+                return "Подскажите, как к вам обращаться?"
 
-        if not merged_ticket.contact:
-            return "Оставьте, пожалуйста, контакт для связи: телефон, email или Telegram."
+            if not merged_ticket.contact:
+                return "Оставьте, пожалуйста, контакт для связи: телефон, email или Telegram."
 
         if not merged_ticket.order_number:
             return "Укажите, пожалуйста, номер заказа."
